@@ -8,6 +8,7 @@ from app.models.income import Income
 from app.models.expense import Expense
 from app.models.budget import Budget
 from app.models.bank_account import BankAccount
+from app.models.savings_goal import SavingsGoal, SavingsContribution
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -36,6 +37,15 @@ def sum_expense(db, user_id, payment_method=None, bank_name=None, bank_account_i
     return float(query.scalar() or 0)
 
 
+def sum_savings_contributions(db, user_id, source_type=None, bank_account_id=None):
+    query = db.query(func.coalesce(func.sum(SavingsContribution.amount), 0)).filter(SavingsContribution.user_id == user_id)
+    if source_type is not None:
+        query = query.filter(SavingsContribution.source_type == source_type)
+    if bank_account_id is not None:
+        query = query.filter(SavingsContribution.bank_account_id == bank_account_id)
+    return float(query.scalar() or 0)
+
+
 @router.get("/")
 def dashboard(db: Session = Depends(get_db), user=Depends(get_current_user)):
     # ------------------------------------------------------------
@@ -50,6 +60,29 @@ def dashboard(db: Session = Depends(get_db), user=Depends(get_current_user)):
     category_budget_total = sum(float(x.amount or 0) for x in budget_rows if x.category != "Overall")
     overall_rows = [x for x in budget_rows if x.category == "Overall"]
     monthly_budget = category_budget_total if category_budget_total > 0 else sum(float(x.amount or 0) for x in overall_rows)
+
+    # ------------------------------------------------------------
+    # 2. Savings goals
+    # Goals are always scoped to the currently logged-in user.
+    # Never use browser localStorage here because that would make one
+    # user's goals appear on another user's dashboard on the same device.
+    # ------------------------------------------------------------
+    savings_goals = (
+        db.query(SavingsGoal)
+        .filter(SavingsGoal.user_id == user.user_id)
+        .order_by(SavingsGoal.goal_id.desc())
+        .all()
+    )
+    savings_goal_rows = [
+        {
+            "goal_id": goal.goal_id,
+            "name": goal.name,
+            "target": round(float(goal.target or 0), 2),
+            "saved": round(float(goal.saved or 0), 2),
+            "deadline": goal.deadline.isoformat() if goal.deadline else None,
+        }
+        for goal in savings_goals
+    ]
 
     # ------------------------------------------------------------
     # 2. Bank balances
@@ -98,11 +131,13 @@ def dashboard(db: Session = Depends(get_db), user=Depends(get_current_user)):
             Expense.bank_account_id.is_(None)
         ).scalar() or 0
         bank_expense = float(new_bank_expense or 0) + float(legacy_bank_expense or 0)
+        savings_transferred = sum_savings_contributions(db, user.user_id, "Bank", account.account_id)
 
         current_balance = (
             float(account.opening_balance or 0)
             + bank_income
             - bank_expense
+            - savings_transferred
         )
 
         total_bank_balance += current_balance
@@ -116,6 +151,7 @@ def dashboard(db: Session = Depends(get_db), user=Depends(get_current_user)):
             "opening_balance": float(account.opening_balance or 0),
             "bank_income": bank_income,
             "bank_expense": bank_expense,
+            "savings_transferred": savings_transferred,
             "balance": current_balance,
         })
 
@@ -127,8 +163,10 @@ def dashboard(db: Session = Depends(get_db), user=Depends(get_current_user)):
     cash_expense = sum_expense(db, user.user_id, payment_method="Cash")
     wallet_expense = sum_expense(db, user.user_id, payment_method="Wallet")
 
-    cash_balance = cash_income - cash_expense
-    wallet_balance = wallet_income - wallet_expense
+    cash_savings = sum_savings_contributions(db, user.user_id, "Cash")
+    wallet_savings = sum_savings_contributions(db, user.user_id, "Wallet")
+    cash_balance = cash_income - cash_expense - cash_savings
+    wallet_balance = wallet_income - wallet_expense - wallet_savings
     non_bank_balance = cash_balance + wallet_balance
 
     # ------------------------------------------------------------
@@ -148,5 +186,8 @@ def dashboard(db: Session = Depends(get_db), user=Depends(get_current_user)):
         "total_bank_balance": total_bank_balance,
         "cash_balance": cash_balance,
         "wallet_balance": wallet_balance,
+        "cash_savings": cash_savings,
+        "wallet_savings": wallet_savings,
         "bank_accounts": bank_accounts,
+        "savings_goals": savings_goal_rows,
     }

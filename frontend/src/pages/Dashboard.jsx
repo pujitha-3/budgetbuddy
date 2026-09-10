@@ -52,15 +52,10 @@ export default function Dashboard() {
       setIncomes(inc.data);
       setExpenses(exp.data);
 
-      try {
-        setSavingsGoals(
-          JSON.parse(
-            localStorage.getItem("budgetbuddy_savings_goals") || "[]"
-          )
-        );
-      } catch {
-        setSavingsGoals([]);
-      }
+      // Savings goals come from the authenticated user's backend data.
+      // This prevents goals from being shared between different accounts
+      // on the same browser/device.
+      setSavingsGoals(dash.data?.savings_goals || []);
     } catch (error) {
       console.error("Dashboard loading error:", error);
     }
@@ -574,7 +569,7 @@ export default function Dashboard() {
                     <Link
                       to="/savings"
                       className="dashboard-goal-card"
-                      key={goal.id}
+                      key={goal.goal_id}
                     >
 
                       <div className="dashboard-goal-top">

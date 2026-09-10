@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from app.database import Base, engine
-from app.models import User, Income, Expense, Budget, BankAccount
-from app.routers import auth, profile, income, expense, budget, dashboard, bank_account, reports
+from app.models import User, Income, Expense, Budget, BankAccount, SavingsContribution, Notification, PremiumRequest
+from app.routers import auth, profile, income, expense, budget, dashboard, bank_account, reports, savings_goal, admin, notifications, premium
 
 Base.metadata.create_all(bind=engine)
 
@@ -25,6 +25,8 @@ def migrate_existing_database():
                 conn.execute(text("ALTER TABLE users ADD COLUMN otp_expires_at DATETIME"))
             if "otp_attempts" not in columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN otp_attempts INTEGER NOT NULL DEFAULT 0"))
+            if "phone" not in columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR(30)"))
 
     if "expenses" in tables:
         columns = {c["name"] for c in inspector.get_columns("expenses")}
@@ -49,6 +51,15 @@ def migrate_existing_database():
                 conn.execute(text(
                     "ALTER TABLE incomes ADD COLUMN bank_account_id INTEGER"
                 ))
+
+
+    if "savings_contributions" in tables:
+        columns = {c["name"] for c in inspector.get_columns("savings_contributions")}
+        with engine.begin() as conn:
+            if "source_type" not in columns:
+                conn.execute(text("ALTER TABLE savings_contributions ADD COLUMN source_type VARCHAR(30) DEFAULT 'Legacy'"))
+            if "bank_account_id" not in columns:
+                conn.execute(text("ALTER TABLE savings_contributions ADD COLUMN bank_account_id INTEGER"))
 
     if "budgets" in tables:
         columns = {c["name"] for c in inspector.get_columns("budgets")}
@@ -77,6 +88,10 @@ app.include_router(budget.router)
 app.include_router(dashboard.router)
 app.include_router(bank_account.router)
 app.include_router(reports.router)
+app.include_router(savings_goal.router)
+app.include_router(admin.router)
+app.include_router(notifications.router)
+app.include_router(premium.router)
 
 
 @app.get("/")

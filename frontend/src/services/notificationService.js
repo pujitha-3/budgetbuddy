@@ -1,73 +1,49 @@
-const KEY = "budgetbuddy_notifications";
+import api from "./api";
 
-export function addNotification({ type = "info", title, text }) {
-  const item = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    type,
-    title,
-    text,
-    time: new Date().toISOString(),
-    read: false,
-  };
-
-  let items = [];
+export async function addNotification({ type = "info", title, text, action_path = null }) {
   try {
-    items = JSON.parse(localStorage.getItem(KEY) || "[]");
-    if (!Array.isArray(items)) items = [];
+    const res = await api.post("/notifications/", { type, title, text, action_path });
+    window.dispatchEvent(new CustomEvent("budgetbuddy:notifications", { detail: res.data }));
+    return res.data;
   } catch {
-    items = [];
+    return null;
   }
-
-  const next = [item, ...items].slice(0, 100);
-  localStorage.setItem(KEY, JSON.stringify(next));
-  window.dispatchEvent(new CustomEvent("budgetbuddy:notifications", { detail: item }));
-  return item;
 }
 
-export function getNotifications() {
+export async function getNotifications() {
   try {
-    const items = JSON.parse(localStorage.getItem(KEY) || "[]");
-    if (!Array.isArray(items)) return [];
-
-    // Remove legacy milestone notifications created by the old logic.
-    // Progress notifications are now generated only for the contribution that happened.
-    const cleaned = items.filter((item) => {
-      const title = String(item?.title || "");
-      return !/^\d+% savings milestone$/i.test(title);
-    });
-
-    if (cleaned.length !== items.length) {
-      localStorage.setItem(KEY, JSON.stringify(cleaned));
-    }
-    return cleaned;
+    const res = await api.get("/notifications/");
+    return res.data || [];
   } catch {
     return [];
   }
 }
 
-export function getUnreadCount() {
-  return getNotifications().filter((item) => !item.read).length;
+export async function getUnreadCount() {
+  const items = await getNotifications();
+  return items.filter((item) => !item.read).length;
 }
 
-export { KEY as NOTIFICATION_KEY };
-
-
-// Used by savings-goal logic to avoid creating the same milestone/completion
-// notification more than once, including for goals created before this logic
-// was added.
-export function hasSavingsMilestoneNotification(goalName, milestone) {
-  const items = getNotifications();
-  const title = `${milestone}% savings milestone`;
-  return items.some(
-    (item) => item.title === title && String(item.text || "").includes(`'${goalName}'`)
-  );
+export async function markNotificationRead(id) {
+  const res = await api.patch(`/notifications/${id}/read`);
+  window.dispatchEvent(new CustomEvent("budgetbuddy:notifications"));
+  return res.data;
 }
 
-export function hasSavingsCompletionNotification(goalName) {
-  const items = getNotifications();
-  return items.some(
-    (item) =>
-      item.title === "Savings goal completed" &&
-      String(item.text || "").includes(`'${goalName}'`)
-  );
+export async function markAllNotificationsRead() {
+  const res = await api.post("/notifications/read-all");
+  window.dispatchEvent(new CustomEvent("budgetbuddy:notifications"));
+  return res.data;
+}
+
+export async function deleteNotification(id) {
+  const res = await api.delete(`/notifications/${id}`);
+  window.dispatchEvent(new CustomEvent("budgetbuddy:notifications"));
+  return res.data;
+}
+
+export async function clearNotifications() {
+  const res = await api.delete("/notifications/");
+  window.dispatchEvent(new CustomEvent("budgetbuddy:notifications"));
+  return res.data;
 }
