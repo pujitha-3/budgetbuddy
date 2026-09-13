@@ -42,3 +42,4 @@ export default function SystemAnalytics() {
     </div>
   </Layout>;
 }
+
